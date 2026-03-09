@@ -54,6 +54,8 @@ static void epd_gui_update(void* p_event_data, uint16_t event_size) {
 
     DrawGUI(&data, (buffer_callback)epd->drv->write_image, epd);
     epd->drv->refresh(epd);
+    epd->drv->sleep(epd);
+    nrf_delay_ms(200);  // for sleep
     EPD_GPIO_Uninit();
 
     app_feed_wdt();
@@ -77,8 +79,10 @@ static void on_connect(ble_epd_t* p_epd, ble_evt_t* p_ble_evt) {
 static void on_disconnect(ble_epd_t* p_epd, ble_evt_t* p_ble_evt) {
     UNUSED_PARAMETER(p_ble_evt);
     p_epd->conn_handle = BLE_CONN_HANDLE_INVALID;
-    p_epd->epd->drv->sleep(p_epd->epd);
-    nrf_delay_ms(200);  // for sleep
+    if (p_epd->epd) {
+        p_epd->epd->drv->sleep(p_epd->epd);
+        nrf_delay_ms(200);  // for sleep
+    }
     EPD_GPIO_Uninit();
 }
 
@@ -137,7 +141,10 @@ static void epd_service_on_write(ble_epd_t* p_epd, uint8_t* p_data, uint16_t len
 
         case EPD_CMD_CLEAR:
             epd_update_display_mode(p_epd, MODE_PICTURE);
-            p_epd->epd->drv->clear(p_epd->epd, length > 1 ? p_data[1] : true);
+            if (p_epd->epd) {
+                p_epd->epd->drv->init(p_epd->epd);
+                p_epd->epd->drv->clear(p_epd->epd, length > 1 ? p_data[1] : true);
+            }
             break;
 
         case EPD_CMD_SEND_COMMAND:
@@ -151,11 +158,11 @@ static void epd_service_on_write(ble_epd_t* p_epd, uint8_t* p_data, uint16_t len
 
         case EPD_CMD_REFRESH:
             epd_update_display_mode(p_epd, MODE_PICTURE);
-            p_epd->epd->drv->refresh(p_epd->epd);
+            if (p_epd->epd) p_epd->epd->drv->refresh(p_epd->epd);
             break;
 
         case EPD_CMD_SLEEP:
-            p_epd->epd->drv->sleep(p_epd->epd);
+            if (p_epd->epd) p_epd->epd->drv->sleep(p_epd->epd);
             break;
 
         case EPD_CMD_SET_TIME: {
@@ -181,7 +188,7 @@ static void epd_service_on_write(ble_epd_t* p_epd, uint8_t* p_data, uint16_t len
 
         case EPD_CMD_WRITE_IMAGE:  // MSB=0000: ram begin, LSB=1111: black
             if (length < 3) return;
-            p_epd->epd->drv->write_ram(p_epd->epd, p_data[1], &p_data[2], length - 2);
+            if (p_epd->epd) p_epd->epd->drv->write_ram(p_epd->epd, p_data[1], &p_data[2], length - 2);
             break;
 
         case EPD_CMD_SET_CONFIG:
