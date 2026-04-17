@@ -26,14 +26,17 @@ const EpdCmd = {
 const canvasSizes = [
   { name: '1.54_152_152', width: 152, height: 152 },
   { name: '1.54_200_200', width: 200, height: 200 },
-  { name: '2.13_212_104', width: 212, height: 104 },
-  { name: '2.13_250_122', width: 250, height: 122 },
-  { name: '2.66_296_152', width: 296, height: 152 },
-  { name: '2.9_296_128', width: 296, height: 128 },
-  { name: '2.9_384_168', width: 384, height: 168 },
-  { name: '3.5_384_184', width: 384, height: 184 },
-  { name: '3.7_416_240', width: 416, height: 240 },
-  { name: '3.97_800_480', width: 800, height: 480 },
+  { name: '2.13_104_212', width: 104, height: 212 },
+  { name: '2.13_122_250', width: 122, height: 250 },
+  { name: '2.66_152_296', width: 152, height: 296 },
+  { name: '2.66_184_360', width: 184, height: 360 },
+  { name: '2.9_128_296', width: 128, height: 296 },
+  { name: '2.9_168_384', width: 168, height: 384 },
+  { name: '3.5_184_384', width: 184, height: 384 },
+  { name: '3.5_360_600', width: 360, height: 600 },
+  { name: '3.7_240_416', width: 240, height: 416 },
+  { name: '3.7_280_480', width: 280, height: 480 },
+  { name: '3.98_552_768', width: 552, height: 768 },
   { name: '4.2_400_300', width: 400, height: 300 },
   { name: '5.79_792_272', width: 792, height: 272 },
   { name: '5.83_600_448', width: 600, height: 448 },
@@ -44,8 +47,8 @@ const canvasSizes = [
   { name: '10.2_960_640', width: 960, height: 640 },
   { name: '10.85_1360_480', width: 1360, height: 480 },
   { name: '11.6_960_640', width: 960, height: 640 },
-  { name: '4E_600_400', width: 600, height: 400 },
-  { name: '7.3E6', width: 480, height: 800 }
+  { name: '4.0E6_600_400', width: 600, height: 400 },
+  { name: '7.3E6_800_480', width: 800, height: 480 },
 ];
 
 function hex2bytes(hex) {
