@@ -2,12 +2,12 @@
 
 // 固定的六色调色板
 const rgbPalette = [
-  { name: "黄色", r: 255, g: 255, b: 0, value: 0xe2 },
-  { name: "绿色", r: 41, g: 204, b: 20, value: 0x96 },
-  { name: "蓝色", r: 0, g: 0, b: 255, value: 0x1d },
-  { name: "红色", r: 255, g: 0, b: 0, value: 0x4c },
   { name: "黑色", r: 0, g: 0, b: 0, value: 0x00 },
-  { name: "白色", r: 255, g: 255, b: 255, value: 0xff }
+  { name: "白色", r: 255, g: 255, b: 255, value: 0x01 },
+  { name: "黄色", r: 255, g: 255, b: 0, value: 0x02 },
+  { name: "红色", r: 255, g: 0, b: 0, value: 0x03 },
+  { name: "蓝色", r: 0, g: 0, b: 255, value: 0x05 },
+  { name: "绿色", r: 41, g: 204, b: 20, value: 0x06 }
 ];
 
 // 四色调色板
@@ -87,7 +87,7 @@ function findClosestColor(r, g, b, mode) {
 
   // 蓝色特殊情况（仅限非三色、四色模式）
   if (mode !== 'fourColor' && mode !== 'threeColor' && r < 50 && g < 150 && b > 100) {
-    return rgbPalette[2]; // 蓝色
+    return rgbPalette[4]; // 蓝色
   }
 
   // 三色模式下优先检测红色
@@ -545,7 +545,7 @@ function decodeProcessedData(processedData, width, height, mode) {
       for (let x = 0; x < width; x++) {
         const newIndex = (x * height) + (height - 1 - y);
         const value = processedData[newIndex];
-        const color = rgbPalette.find(c => c.value === value) || rgbPalette[5]; // 默认白色
+        const color = rgbPalette.find(c => c.value === value) || rgbPalette[1]; // 默认白色
         const index = (y * width + x) * 4;
         data[index] = color.r;
         data[index + 1] = color.g;
