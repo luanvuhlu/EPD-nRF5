@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "bleak>=3.0.2",
-    "nvidia-ml-py>=13.610.43",
+    "gpu-tracker>=5.0.1",
     "pillow>=12.2.0",
     "psutil>=7.2.2",
 ]

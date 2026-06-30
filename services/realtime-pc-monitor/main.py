@@ -72,9 +72,10 @@ SERVICE_UUID = "62750001-d828-918d-fb46-b6c11c675aec"
 CHAR_UUID = "62750002-d828-918d-fb46-b6c11c675aec"
 VERSION_CHAR_UUID = "62750003-d828-918d-fb46-b6c11c675aec"
 
-DEVICE_NAME_FILTER = "NRF_EPD_8687"  # ví dụ "EPD-xxxx" để lọc nhanh khi scan, để None để chọn thủ công
-DEVICE_ADDRESS = "58593A56-6ED3-2247-3E7A-51C2B785C291"
-MODE = 3 # 1: image, 2: calendar, 3: clock
+DEVICE_NAME_FILTER = 'NRF_EPD_8687'  # NRF_EPD_8687 ví dụ "EPD-xxxx" để lọc nhanh khi scan, để None để chọn thủ công
+DEVICE_ADDRESS = None # 58593A56-6ED3-2247-3E7A-51C2B785C291 "DC:98:5A:4C:86:87"
+CACHE_TXT = "device_address.txt"
+MODE = 1 # 1: image, 2: calendar, 3: clock
 SCAN_MODE = 0 # 0: fixed device, 1: scan all devices
 
 # Màn hình vật lý của bạn đặt NGANG (landscape) chứ không dọc. Buffer gửi
@@ -125,15 +126,35 @@ def get_cpu_percent() -> float:
 
 
 def get_gpu_percent():
-    """Trả về % GPU (NVIDIA) hoặc None nếu không có pynvml / không có GPU NVIDIA."""
+    """
+    Lấy % sử dụng GPU bằng cách truy vấn lớp Win32_PerfFormattedData_GPUPerformanceCounters.
+    """
+    if os.name != "nt":
+        return None
+
     try:
-        import pynvml
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-        pynvml.nvmlShutdown()
-        return util.gpu
-    except Exception:
+        import subprocess
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        # Lấy dữ liệu thô từ cấu trúc hiệu năng của WMI Windows
+        cmd = "wmic path Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine get UtilizationPercentage"
+        res = subprocess.check_output(cmd, text=True, startupinfo=startupinfo)
+        
+        utils = []
+        for line in res.splitlines():
+            line = line.strip()
+            if line.isdigit():
+                val = int(line)
+                if 0 < val <= 100:  # Lọc bỏ giá trị ảo
+                    utils.append(val)
+                    
+        if utils:
+            return max(utils)  # Trả về % của engine đang hoạt động cao nhất
+            
+        return 0
+    except Exception as e:
+        print(f"Không đọc được AMD GPU qua WMI ({e})")
         return None
 
 
@@ -346,30 +367,58 @@ class EpdDevice:
             await asyncio.sleep(UPDATE_INTERVAL_SEC)
 
 
+def load_cached_address():
+    """Đọc địa chỉ raw từ file txt"""
+    if os.path.exists(CACHE_TXT):
+        try:
+            with open(CACHE_TXT, "r", encoding="utf-8") as f:
+                addr = f.read().strip()
+                return addr if addr else None
+        except Exception as e:
+            print(f"Không đọc được file cấu hình địa chỉ: {e}")
+    return None
+
+def save_cached_address(address):
+    """Ghi đè địa chỉ raw vào file txt"""
+    try:
+        with open(CACHE_TXT, "w", encoding="utf-8") as f:
+            f.write(address.strip())
+        print(f"--> Đã lưu địa chỉ [{address}] vào file {CACHE_TXT}")
+    except Exception as e:
+        print(f"Không thể ghi địa chỉ vào file txt: {e}")
+        
+        
+
 async def scan_and_connect() -> BleakClient:
+    cached_addr = load_cached_address()
+    target_name = None
+    target_address = None
     if SCAN_MODE == 0:
         target_name = '[FIXED]'
-        target_address = DEVICE_ADDRESS
+        target_address = cached_addr
     else:
         print("Đang scan thiết bị Bluetooth...")
-        devices = await BleakScanner.discover(timeout=6.0)
+        devices = await BleakScanner.discover(timeout=20.0)
+        for i, d in enumerate(devices):
+            print(f"  [{i}] {d.name or '(không tên)'}  {d.address}")
         if DEVICE_NAME_FILTER:
             devices = [d for d in devices if d.name and DEVICE_NAME_FILTER in d.name]
 
         if not devices:
             print("Không tìm thấy thiết bị nào. Kiểm tra Bluetooth đã bật và màn hình đang ở chế độ chờ kết nối.")
             sys.exit(1)
-
         print("Chọn thiết bị:")
-        for i, d in enumerate(devices):
-            print(f"  [{i}] {d.name or '(không tên)'}  {d.address}")
         if len(devices) == 1:
             target = devices[0]
         else:
             choice = input("Nhập số thứ tự: ").strip()
             target = devices[int(choice)]
-            target_name = target.name
-            target_address = target.address
+        target_name = target.name
+        target_address = target.address
+    if target_address is None:
+        raise Exception("Địa chỉ thiết bị không hợp lệ")
+    if target_address != cached_addr:
+        save_cached_address(target_address)
     client = BleakClient(target_address)     
     print(f"Đang kết nối: {target_name} ({target_address})")
     await client.connect()
@@ -407,8 +456,8 @@ async def main():
                 print(f"MTU thực tế (theo bleak): {negotiated_mtu}, dùng chunk_size = {epd.chunk_size}")
             except Exception as e:
                 print(f"Không đọc được MTU thực tế ({e}), dùng SAFE_CHUNK_SIZE = {epd.chunk_size}")
-        else:
-            print(f"Dùng chunk_size cố định an toàn = {epd.chunk_size} (AUTO_DETECT_MTU=False)")
+        # else:
+        #     print(f"Dùng chunk_size cố định an toàn = {epd.chunk_size} (AUTO_DETECT_MTU=False)")
 
         if EPD_PINS_HEX:
             await epd.write(EpdCmd.SET_PINS, hex2bytes(EPD_PINS_HEX))
