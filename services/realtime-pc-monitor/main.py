@@ -349,22 +349,35 @@ class EpdDevice:
             print(f"  gửi chunk {idx}/{count + 1}", end="\r")
         print()
 
-    async def send_image(self, img: Image.Image):
+    async def send_image(self, img: Image.Image, retry_time: int = 0):
+        if retry_time > 3:
+            raise Exception('Không gửi được ảnh')
         bw_data, red_data = image_to_threecolor_planes(img)
-        await self.write(EpdCmd.INIT)
-        await self.write_image(bw_data, "bw")
-        await self.write_image(red_data, "red")
-        await self.write(EpdCmd.REFRESH)
+        try:
+            await self.write(EpdCmd.INIT)
+            await self.write_image(bw_data, "bw")
+            await self.write_image(red_data, "red")
+            await self.write(EpdCmd.REFRESH)
+        except Exception as e:
+            print(f'Không gửi được ảnh {e}. Thử lại')
+            await self.send_image(img, retry_time=retry_time + 1)
     
     async def sync_metrics(self):
         print(f"Bắt đầu vòng lặp cập nhật mỗi {UPDATE_INTERVAL_SEC}s. Ctrl+C để dừng.")
+        interval = UPDATE_INTERVAL_SEC
         while True:
+            print('Bắt đầu gửi dữ liệu')
             img = render_stats_image()
             t0 = time.time()
             await self.send_image(img)
             print(f"  -> đã gửi & refresh, mất {time.time() - t0:.1f}s")
-
-            await asyncio.sleep(UPDATE_INTERVAL_SEC)
+            if interval > 120: # If longer than 1 min, disconnect and connect later
+                print('Disconnecting...')
+                await self.client.disconnect()
+                await asyncio.sleep(10) # Give the device time to recover
+            await asyncio.sleep(interval - 10)
+            new_client = await scan_and_connect()
+            self.client = new_client
 
 
 def load_cached_address():
@@ -389,39 +402,44 @@ def save_cached_address(address):
         
         
 
-async def scan_and_connect() -> BleakClient:
+async def scan_and_connect(scan_mode: int = SCAN_MODE, retry_time = 0) -> BleakClient:
+    if retry_time > 3:
+        raise Exception('Đã chạy nhiều lần nhưng không thành công')
     cached_addr = load_cached_address()
     target_name = None
     target_address = None
-    if SCAN_MODE == 0:
-        target_name = '[FIXED]'
-        target_address = cached_addr
-    else:
-        print("Đang scan thiết bị Bluetooth...")
-        devices = await BleakScanner.discover(timeout=20.0)
-        for i, d in enumerate(devices):
-            print(f"  [{i}] {d.name or '(không tên)'}  {d.address}")
-        if DEVICE_NAME_FILTER:
-            devices = [d for d in devices if d.name and DEVICE_NAME_FILTER in d.name]
-
-        if not devices:
-            print("Không tìm thấy thiết bị nào. Kiểm tra Bluetooth đã bật và màn hình đang ở chế độ chờ kết nối.")
-            sys.exit(1)
-        print("Chọn thiết bị:")
-        if len(devices) == 1:
-            target = devices[0]
+    try:
+        if scan_mode == 0:
+            target_name = '[FIXED]'
+            target_address = cached_addr
         else:
-            choice = input("Nhập số thứ tự: ").strip()
-            target = devices[int(choice)]
-        target_name = target.name
-        target_address = target.address
-    if target_address is None:
-        raise Exception("Địa chỉ thiết bị không hợp lệ")
-    if target_address != cached_addr:
-        save_cached_address(target_address)
-    client = BleakClient(target_address)     
-    print(f"Đang kết nối: {target_name} ({target_address})")
-    await client.connect()
+            print("Đang scan thiết bị Bluetooth...")
+            devices = await BleakScanner.discover(timeout=20.0)
+            for i, d in enumerate(devices):
+                print(f"  [{i}] {d.name or '(không tên)'}  {d.address}")
+            if DEVICE_NAME_FILTER:
+                devices = [d for d in devices if d.name and DEVICE_NAME_FILTER in d.name]
+
+            if not devices:
+                raise Exception("Không tìm thấy thiết bị nào. Kiểm tra Bluetooth đã bật và màn hình đang ở chế độ chờ kết nối.")
+            print("Chọn thiết bị:")
+            if len(devices) == 1:
+                target = devices[0]
+            else:
+                choice = input("Nhập số thứ tự: ").strip()
+                target = devices[int(choice)]
+            target_name = target.name
+            target_address = target.address
+        if target_address is None:
+            raise Exception("Địa chỉ thiết bị không hợp lệ")
+        if target_address != cached_addr:
+            save_cached_address(target_address)
+        client = BleakClient(target_address)     
+        print(f"Đang kết nối: {target_name} ({target_address})")
+        await client.connect()
+    except Exception as e:
+        print(f'Không thấy hoặc kết nối được với {target_address}. Error: {e}. Thử scan lại')
+        return await scan_and_connect(scan_mode=1, retry_time=retry_time + 1)
     print(f"Đã kết nối: {target_name} ({target_address})")
     return client
 
