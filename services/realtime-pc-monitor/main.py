@@ -40,7 +40,9 @@ import asyncio
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime
+from urllib.request import Request, urlopen
 
 import psutil
 from PIL import Image, ImageDraw, ImageFont
@@ -158,6 +160,26 @@ def get_gpu_percent():
         return None
 
 
+GOLD_API_URL = "https://giavang.doji.vn/api/giavang/?api_key=258fbd2a72ce8481089d88c678e9fe4f"
+
+
+def get_gold_price():
+    try:
+        req = Request(GOLD_API_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=10) as resp:
+            xml_data = resp.read()
+        root = ET.fromstring(xml_data)
+        jewelry_list = root.find("JewelryList")
+        if jewelry_list is not None:
+            for row in jewelry_list.findall("Row"):
+                if row.get("Name") == "Nhẫn Tròn 9999 Hưng Thịnh Vượng":
+                    return row.get("Buy"), row.get("Sell")
+        return None, None
+    except Exception as e:
+        print(f"Lỗi lấy giá vàng: {e}")
+        return None, None
+
+
 # ============== Render ảnh CPU/GPU thành bitmap 1bpp ==============
 
 def load_font(size, bold=False):
@@ -198,16 +220,13 @@ def load_font(size, bold=False):
     
     
 def render_stats_image() -> Image.Image:
-    # RGB vì driver thực tế của bạn là 3 màu (đen/trắng/đỏ) - xem threeColor encode bên dưới.
-    # Ở đây chỉ vẽ đen/trắng (không dùng màu đỏ), nhưng vẫn phải qua đúng pipeline
-    # threeColor để khớp với firmware/driver đang cấu hình.
     cpu_pct = get_cpu_percent()
     gpu_pct = get_gpu_percent()
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] CPU={cpu_pct:.0f}% GPU={gpu_pct}")
-    # Kích thước canvas "ảo" lúc vẽ: nếu có xoay 90/270 thì canvas vẽ là ngang
-    # (hoán đổi width/height so với buffer thật), nếu không xoay thì giữ nguyên.
+    gold_buy, gold_sell = get_gold_price()
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] CPU={cpu_pct:.0f}% GPU={gpu_pct} Gold={gold_buy}/{gold_sell}")
+
     if ROTATE_FOR_LANDSCAPE in (90, -90, 270, -270):
-        draw_w, draw_h = EPD_HEIGHT, EPD_WIDTH  # canvas ngang: 250 x 122
+        draw_w, draw_h = EPD_HEIGHT, EPD_WIDTH
     else:
         draw_w, draw_h = EPD_WIDTH, EPD_HEIGHT
 
@@ -216,9 +235,10 @@ def render_stats_image() -> Image.Image:
     draw = ImageDraw.Draw(img)
 
     s = SUPERSAMPLE
-    font_huge = load_font(50 * s, bold=True)
+    font_huge = load_font(40 * s, bold=True)
     font_label = load_font(24 * s, bold=True)
     font_small = load_font(20 * s)
+    font_tiny = load_font(16 * s)
     BLACK = (0, 0, 0)
 
     def draw_centered(text, font, cx, cy):
@@ -228,27 +248,32 @@ def render_stats_image() -> Image.Image:
         y = cy - th / 2 - bbox[1]
         draw.text((x, y), text, font=font, fill=BLACK)
 
-    # Bố cục NGANG: CPU bên trái, GPU bên phải, vạch dọc chia giữa, giờ ở dưới.
     half_w = big_w // 2
     label_y = int(big_h * 0.22)
-    value_y = int(big_h * 0.50)
+    value_y = int(big_h * 0.44)
 
     draw_centered("CPU", font_label, half_w // 2, label_y)
     draw_centered(f"{cpu_pct:.0f}%", font_huge, half_w // 2, value_y)
 
-    draw.line((half_w, int(big_h * 0.12), half_w, int(big_h * 0.82)), fill=BLACK, width=2 * s)
+    draw.line((half_w, int(big_h * 0.10), half_w, int(big_h * 0.55)), fill=BLACK, width=2 * s)
 
     draw_centered("GPU", font_label, half_w + half_w // 2, label_y)
     gpu_text = f"{gpu_pct:.0f}%" if gpu_pct is not None else "N/A"
     draw_centered(gpu_text, font_huge, half_w + half_w // 2, value_y)
 
-    now_str = datetime.now().strftime("%H:%M:%S")
-    draw_centered(now_str, font_small, big_w // 2, int(big_h * 0.93))
+    gold_title_y = int(big_h * 0.60)
+    gold_price_y = int(big_h * 0.72)
+    if gold_buy is not None and gold_sell is not None:
+        # draw_centered("Nhẫn Tròn 9999", font_small, big_w // 2, gold_title_y)
+        draw_centered(f"Mua:{gold_buy}  Bán:{gold_sell}", font_tiny, big_w // 2, gold_price_y)
+    else:
+        draw_centered("Vàng: N/A", font_small, big_w // 2, gold_title_y)
 
-    # Thu nhỏ lại bằng LANCZOS để chữ mượt (anti-alias), rồi mới threshold sau.
+    now_str = datetime.now().strftime("%H:%M:%S")
+    draw_centered(now_str, font_small, big_w // 2, int(big_h * 0.90))
+
     img = img.resize((draw_w, draw_h), Image.Resampling.LANCZOS)
 
-    # Xoay về đúng hướng buffer thật mà firmware mong đợi.
     if ROTATE_FOR_LANDSCAPE not in (0,):
         img = img.rotate(ROTATE_FOR_LANDSCAPE, expand=True)
 
